@@ -10,4 +10,4 @@ When you edit the algorithms in n8n, mirror your changes back to the matching fi
 | `eoq-optimizer.js`   | Inventory EOQ Planner |
 | `classical-logistics.js` | Classical Logistics Fallback |
 
-Each file has `// TODO [easy|medium|hard]` markers tagged with the learning objective they map to. See `docs/assignment.md` for the full TODO inventory and rubric.
+The starter versions of these files used task markers tagged with the learning objective they map to. See `docs/assignment.md` for the full inventory and rubric.

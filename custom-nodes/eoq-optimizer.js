@@ -17,18 +17,25 @@
  * Slow-movers make the formula numerically unstable.
  *
  * This node teaches the boundary problem: classical algorithms give crisp
- * answers exactly when their assumptions hold. Your two TODOs are
- *   (a) implement the formula
- *   (b) detect when its assumptions don't hold for a given SKU
+ * answers exactly when their assumptions hold. It computes the formula and
+ * detects when its assumptions do not hold for a given SKU.
  *
  * The downstream LLM exception node handles the SKUs you flag.
  *
  * Reading: docs/planning-primer.md §"STRIPS-style assumptions and where they break"
  */
 
-// Inputs are merged upstream from two reads — inventory and sales — so this
-// node sees a heterogeneous list. Partition them by which fields are present.
-const all = $input.all().map(i => i.json);
+// The planner routes a control item into this node. Pull canonical inventory
+// and sales data from the parsed CSV nodes so the branch is data-complete.
+const inventoryRows = [
+  ...new Map($('Read Inventory JSON').all().map(i => [i.json.sku, i.json])).values(),
+];
+const salesRows = [
+  ...new Map(
+    $('Read Sales JSON').all().map(i => [`${i.json.sku}:${i.json.month}`, i.json])
+  ).values(),
+];
+const all = [...inventoryRows, ...salesRows];
 
 // Default ordering cost (S in the EOQ formula). In production this would
 // vary by supplier and channel; we hard-code a single value so the focus
@@ -49,7 +56,7 @@ function annualDemand(salesForSku) {
   return salesForSku.reduce((acc, r) => acc + Number(r.units_sold), 0);
 }
 
-// ---- TODO #1 — the EOQ formula --------------------------------------------
+// ---- EOQ formula -----------------------------------------------------------
 
 /**
  * Wilson's Economic Order Quantity:
@@ -66,11 +73,14 @@ function annualDemand(salesForSku) {
  *       and dividing by zero holding cost is meaningless.)
  */
 function eoq(D, S, H) {
-  // TODO [medium] — LO-2: classical optimization
-  throw new Error("TODO [medium]: implement eoq()");
+  D = Number(D);
+  S = Number(S);
+  H = Number(H);
+  if (D <= 0 || S <= 0 || H <= 0) return 0;
+  return Math.round(Math.sqrt((2 * D * S) / H));
 }
 
-// ---- TODO #2 — assumption-violation detection -----------------------------
+// ---- Assumption-violation detection ---------------------------------------
 
 /**
  * EOQ assumes:
@@ -101,8 +111,40 @@ function eoq(D, S, H) {
  *       trigger multiple flags — that's expected and useful downstream.
  */
 function detectViolations(inv, salesSeries) {
-  // TODO [hard] — LO-4: knowing when classical models fail
-  throw new Error("TODO [hard]: implement detectViolations()");
+  const flags = [];
+  const units = salesSeries.map(r => Number(r.units_sold));
+
+  const mean = values => values.length
+    ? values.reduce((acc, n) => acc + n, 0) / values.length
+    : 0;
+
+  const annual = annualDemand(salesSeries);
+  const first3 = mean(units.slice(0, 3));
+  const last3 = mean(units.slice(-3));
+  const prior9 = mean(units.slice(0, -3));
+
+  if (prior9 > 0 && last3 > prior9 * 2.5) {
+    flags.push("viral_spike");
+  }
+
+  if (first3 > 0 && last3 < first3 * 0.5) {
+    flags.push("declining");
+  }
+
+  if (annual < 60) {
+    flags.push("low_velocity");
+  }
+
+  const overallMean = mean(units);
+  const variance = units.length
+    ? units.reduce((acc, n) => acc + Math.pow(n - overallMean, 2), 0) / units.length
+    : 0;
+  const coefficientOfVariation = overallMean > 0 ? Math.sqrt(variance) / overallMean : 0;
+  if (Number(inv.lead_time_days) > 28 && coefficientOfVariation > 0.5) {
+    flags.push("long_lead_time");
+  }
+
+  return flags;
 }
 
 // ---- Main loop (provided) -------------------------------------------------

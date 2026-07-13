@@ -25,11 +25,35 @@
 //              destination_region, transit_days, cost_per_kg,
 //              max_weight_kg, supports_perishable }
 
-const all = $input.all().map(i => i.json);
-const requests = all.filter(x => x.type === "request");
-const options  = all.filter(x => x.type === "option");
+const fallbackIds = new Set(
+  $input.all()
+    .map(i => i.json)
+    .map(j => {
+      if (Array.isArray(j.content) && j.content[0]?.text) {
+        try {
+          return JSON.parse(j.content[0].text).request_id;
+        } catch (e) {
+          return null;
+        }
+      }
+      return j.request_id || null;
+    })
+    .filter(Boolean)
+);
 
-// ---- TODO — greedy carrier assignment -------------------------------------
+const allRequests = [
+  ...new Map($('Build Shipping Requests').all().map(i => [i.json.request_id, i.json])).values(),
+];
+const requests = fallbackIds.size
+  ? allRequests.filter(req => fallbackIds.has(req.request_id))
+  : allRequests;
+const options = [
+  ...new Map(
+    $('Read Shipping JSON').all().map(i => [i.json.option_id, { type: "option", ...i.json }])
+  ).values(),
+];
+
+// ---- Greedy carrier assignment --------------------------------------------
 
 /**
  * Pick the cheapest shipping option satisfying ALL hard constraints
@@ -58,8 +82,22 @@ const options  = all.filter(x => x.type === "option");
  * the LLM branch, not because we couldn't afford the optimal search.
  */
 function pickCheapestFeasible(req, options) {
-  // TODO [hard] — LO-2: classical search baselines
-  throw new Error("TODO [hard]: implement pickCheapestFeasible()");
+  const feasible = options
+    .filter(option => option.origin_region === req.origin_region)
+    .filter(option => option.destination_region === req.dest_region)
+    .filter(option => Number(option.transit_days) <= Number(req.deadline_days))
+    .filter(option => Number(option.max_weight_kg) >= Number(req.weight_kg))
+    .filter(option => !req.perishable || String(option.supports_perishable) === "true" || option.supports_perishable === true)
+    .map(option => ({
+      ...option,
+      total_cost_usd: Math.round(Number(req.weight_kg) * Number(option.cost_per_kg) * 100) / 100,
+    }));
+
+  if (feasible.length === 0) return null;
+
+  return feasible.reduce((best, option) =>
+    option.total_cost_usd < best.total_cost_usd ? option : best
+  );
 }
 
 // ---- Main loop (provided) -------------------------------------------------

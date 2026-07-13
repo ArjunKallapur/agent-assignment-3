@@ -1,5 +1,5 @@
 {
-  "id": "smart-order-router-v1",
+  "id": "smart-order-router-v2",
   "name": "Smart Order Router (In-Class)",
   "nodes": [
     {
@@ -41,20 +41,16 @@
         720,
         380
       ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "anthropic-credential-placeholder",
-          "name": "Anthropic API Key"
-        }
-      },
       "parameters": {
         "method": "POST",
         "url": "https://api.anthropic.com/v1/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
             {
               "name": "anthropic-version",
               "value": "2023-06-01"
@@ -256,24 +252,15 @@
     {
       "id": "8a2e417d-7cd9-58b3-8da5-acd09ae6855a",
       "name": "Mark Routed",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1920,
         200
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "93943d47-1a64-5a28-ae0a-89b4e172e93b",
-              "name": "action",
-              "value": "routed_primary",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
+        "language": "javaScript",
+        "jsCode": "const j = $json;\n\nreturn [{\n  json: {\n    ...j,\n    action: \"routed_primary\",\n  },\n}];\n"
       }
     },
     {
